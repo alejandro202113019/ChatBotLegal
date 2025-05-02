@@ -1,0 +1,22 @@
+[
+    {
+      "question": "¿Qué es un contrato?",
+      "answer": "Un contrato es un acuerdo legal entre dos o más partes que crea obligaciones exigibles. Para que sea válido generalmente requiere: 1) Consentimiento, 2) Objeto lícito, 3) Causa lícita y 4) Capacidad legal de las partes. Los contratos pueden ser orales o escritos, aunque algunos requieren forma específica por ley."
+    },
+    {
+      "question": "¿Cómo se realiza un divorcio?",
+      "answer": "El divorcio puede ser: 1) Mutuo acuerdo: ambos cónyuges presentan convenio regulador ante notario o juez. 2) Contencioso: cuando no hay acuerdo, requiere demanda y procedimiento judicial. Requisitos básicos: matrimonio válido, transcurrido plazo mínimo (varía por país), y cumplir causas legales."
+    },
+    {
+      "question": "¿Qué derechos tiene un arrendatario?",
+      "answer": "Derechos básicos del arrendatario: 1) Uso pacífico de la vivienda, 2) Renovación automática en muchos casos, 3) Limitación al aumento de renta, 4) Derecho a desistimiento en plazos legales, 5) Reparaciones a cargo del propietario (excepto menores). Varían según legislación local."
+    },
+    {
+      "question": "¿Qué es un testamento?",
+      "answer": "El testamento es un acto jurídico unilateral por el que una persona dispone sobre su patrimonio para después de su muerte. Tipos comunes: 1) Ológrafo (manuscrito), 2) Abierto (ante notario), 3) Cerrado. Puede modificarse o revocarse mientras el testador viva."
+    },
+    {
+      "question": "¿Cómo denunciar acoso laboral?",
+      "answer": "Pasos básicos: 1) Recopilar pruebas (emails, testigos, etc.), 2) Presentar denuncia ante Inspección de Trabajo, 3) Opcionalmente demanda laboral. En muchos países se considera despido nulo si es por acoso. Plazos varían (generalmente 1 año desde los hechos)."
+    }
+  ]
