@@ -14,12 +14,13 @@ CORS(app)
 app.config['DEBUG'] = os.getenv('DEBUG', 'False') == 'True'
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'una-clave-secreta-muy-segura')
 
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     user_message = request.json.get('message')
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
-    
+
     try:
         bot_response = process_legal_query(user_message)
         return jsonify({
@@ -29,6 +30,7 @@ def chat():
     except Exception as e:
         app.logger.error(f"Error processing message: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
