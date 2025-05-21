@@ -1,0 +1,168 @@
+# Asistente Legal Inteligente
+
+Este proyecto implementa un asistente legal inteligente basado en técnicas avanzadas de procesamiento de lenguaje natural (NLP). El sistema está diseñado para responder consultas relacionadas con el Código de Procedimiento Penal de Colombia y otros temas legales.
+
+## Características principales
+
+- **Análisis Semántico Avanzado**: Utiliza técnicas de NLP como TF-IDF, embeddings de palabras y análisis de entidades para comprender mejor las consultas.
+- **Comprensión Contextual**: Mantiene el contexto de la conversación para proporcionar respuestas más coherentes y personalizadas.
+- **Extracción Inteligente de Información**: Identifica y extrae información relevante de la base de conocimiento legal.
+- **Múltiples Endpoints de API**: Ofrece endpoints para procesamiento de consultas, retroalimentación, gestión de contexto y búsqueda de artículos específicos.
+- **Sistema de Retroalimentación**: Permite a los usuarios proporcionar feedback sobre las respuestas para mejorar continuamente el sistema.
+
+## Arquitectura del Sistema
+
+El sistema consta de los siguientes componentes principales:
+
+1. **Servidor Flask**: Proporciona una API REST para interactuar con el asistente.
+2. **Procesador NLP**: Núcleo del sistema que analiza y procesa las consultas legales.
+3. **Base de Conocimiento Legal**: Colección de información jurídica extraída del Código de Procedimiento Penal.
+4. **Motor de Búsqueda Semántica**: Utiliza vectorización de texto y técnicas de similitud para encontrar respuestas relevantes.
+
+## Requisitos
+
+- Python 3.8 o superior
+- Dependencias listadas en `requirements.txt`
+
+## Instalación
+
+1. Clonar el repositorio:
+   ```
+   git clone https://github.com/tu-usuario/asistente-legal.git
+   cd asistente-legal
+   ```
+
+2. Crear y activar un entorno virtual:
+   ```
+   python -m venv venv
+   source venv/bin/activate  # En Windows: venv\Scripts\activate
+   ```
+
+3. Instalar las dependencias:
+   ```
+   pip install -r requirements.txt
+   ```
+
+4. Descargar recursos adicionales:
+   ```
+   python -m spacy download es_core_news_md
+   python -m nltk.downloader punkt stopwords wordnet
+   ```
+
+5. Configurar variables de entorno (crea un archivo `.env` en la raíz):
+   ```
+   DEBUG=True
+   PORT=5000
+   SECRET_KEY=tu-clave-secreta-aqui
+   ```
+
+## Uso
+
+### Iniciar el servidor
+
+```
+python backend/app.py
+```
+
+El servidor estará disponible en `http://localhost:5000`.
+
+### API Endpoints
+
+#### 1. Chat - `/api/chat` (POST)
+
+Procesa una consulta legal y devuelve una respuesta.
+
+**Parámetros:**
+- `message`: Consulta del usuario (requerido)
+- `session_id`: ID de sesión para mantener contexto (opcional)
+
+**Ejemplo de solicitud:**
+```json
+{
+  "message": "¿Qué establece el Artículo 8 sobre el derecho a la defensa?",
+  "session_id": "abc123"
+}
+```
+
+**Ejemplo de respuesta:**
+```json
+{
+  "bot_response": "El Artículo 8o. del Código de Procedimiento Penal establece el derecho a la DEFENSA. En desarrollo de la actuación, una vez adquirida la condición de imputado, este tendrá derecho, en plena igualdad respecto del órgano de persecución penal, a no ser obligado a declarar en contra de sí mismo, a disponer de un abogado, a conocer los cargos que le sean imputados, entre otros derechos fundamentales.",
+  "session_id": "abc123",
+  "user_message": "¿Qué establece el Artículo 8 sobre el derecho a la defensa?"
+}
+```
+
+#### 2. Feedback - `/api/feedback` (POST)
+
+Permite a los usuarios proporcionar retroalimentación sobre las respuestas.
+
+**Parámetros:**
+- `type`: Tipo de feedback ('positive' o 'negative')
+- `session_id`: ID de sesión
+- `message_id`: ID del mensaje (opcional)
+- `comments`: Comentarios adicionales (opcional)
+
+#### 3. Establecer Contexto - `/api/context` (POST)
+
+Establece contexto adicional para la conversación.
+
+**Parámetros:**
+- `session_id`: ID de sesión
+- `context`: Objeto con datos de contexto
+
+#### 4. Limpiar Historial - `/api/clear_history` (POST)
+
+Limpia el historial de conversación.
+
+**Parámetros:**
+- `session_id`: ID de sesión
+
+#### 5. Verificación de Salud - `/api/health` (GET)
+
+Verifica el estado del sistema.
+
+#### 6. Artículos Relevantes - `/api/articles` (GET)
+
+Busca artículos del CPP relevantes según palabras clave.
+
+**Parámetros:**
+- `keywords`: Lista de palabras clave separadas por comas
+
+## Personalización
+
+### Extender la Base de Conocimiento
+
+Para agregar nuevos artículos o información legal:
+
+1. Usar el script `backend/pdf_extraction.py` para extraer información de PDFs legales.
+2. Editar manualmente el archivo `backend/data/legal_db.json`.
+
+### Ajustar Parámetros de Búsqueda
+
+Los parámetros de búsqueda semántica se pueden ajustar en el archivo `backend/nlp/processor.py`:
+
+- Modificar los umbrales de similitud para resultados más/menos restrictivos.
+- Ajustar los ponderadores para diferentes características de NLP.
+
+## Desarrollo Frontend
+
+Este proyecto implementa solo el backend. Para crear un frontend, puedes:
+
+1. Desarrollar una interfaz web utilizando React, Vue.js, etc.
+2. Desarrollar una aplicación móvil que consuma esta API.
+3. Integrar con plataformas de mensajería como WhatsApp o Telegram.
+
+## Limitaciones
+
+- El sistema se basa principalmente en coincidencia de patrones y búsqueda semántica, no en comprensión profunda del lenguaje jurídico.
+- Las respuestas están limitadas a la información en la base de conocimiento.
+- No realiza razonamiento jurídico complejo.
+
+## Contribuciones
+
+Las contribuciones son bienvenidas. Por favor, abre un issue para discutir cambios importantes antes de enviar un pull request.
+
+## Licencia
+
+Este proyecto está licenciado bajo MIT License.
