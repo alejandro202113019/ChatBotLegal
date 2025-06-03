@@ -46,7 +46,7 @@ The model was trained with the parameters:
 
 **DataLoader**:
 
-`torch.utils.data.dataloader.DataLoader` of length 101 with parameters:
+`torch.utils.data.dataloader.DataLoader` of length 1665 with parameters:
 ```
 {'batch_size': 16, 'sampler': 'torch.utils.data.sampler.RandomSampler', 'batch_sampler': 'torch.utils.data.sampler.BatchSampler'}
 ```
@@ -59,7 +59,7 @@ Parameters of the fit()-Method:
 ```
 {
     "epochs": 3,
-    "evaluation_steps": 101,
+    "evaluation_steps": 1665,
     "evaluator": "sentence_transformers.evaluation.EmbeddingSimilarityEvaluator.EmbeddingSimilarityEvaluator",
     "max_grad_norm": 1,
     "optimizer_class": "<class 'torch.optim.adamw.AdamW'>",
@@ -68,7 +68,7 @@ Parameters of the fit()-Method:
     },
     "scheduler": "WarmupLinear",
     "steps_per_epoch": null,
-    "warmup_steps": 10,
+    "warmup_steps": 166,
     "weight_decay": 0.01
 }
 ```

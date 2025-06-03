@@ -9,7 +9,6 @@ import numpy as np
 from pathlib import Path
 import logging
 from collections import Counter
-import spacy
 import datetime
 
 # Configuración de logging
@@ -19,21 +18,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger('legal_assistant')
 
-# Cargar modelos de NLP
+# Intentar cargar spaCy (opcional)
 try:
-    # Cargar modelo en español de spaCy para análisis más detallado
+    import spacy
     nlp = spacy.load("es_core_news_md")
     logger.info("Modelo de spaCy cargado correctamente")
 except Exception as e:
-    logger.warning(f"No se pudo cargar el modelo de spaCy: {str(e)}. Instalando...")
-    try:
-        import subprocess
-        subprocess.run(["python", "-m", "spacy", "download", "es_core_news_md"])
-        nlp = spacy.load("es_core_news_md")
-        logger.info("Modelo de spaCy instalado y cargado correctamente")
-    except Exception as e:
-        logger.error(f"Error al instalar modelo de spaCy: {str(e)}")
-        nlp = None
+    logger.warning(f"No se pudo cargar spaCy: {str(e)}. Continuando sin análisis avanzado.")
+    nlp = None
 
 # Inicializar recursos de NLTK
 try:
@@ -49,100 +41,264 @@ except Exception as e:
     spanish_stopwords = set()
     stemmer = None
 
-# Datos adicionales
-CURRENT_DATE = datetime.datetime.now().strftime("%d/%m/%Y")
-LEGAL_ENTITIES = {
-    "fiscalía": "Organismo encargado de la investigación de los delitos y el ejercicio de la acción penal",
-    "tribunal": "Órgano judicial que resuelve los conflictos jurídicos",
-    "juez": "Persona que tiene autoridad para juzgar y sentenciar",
-    "abogado": "Profesional del derecho que ejerce la defensa jurídica",
-    "notario": "Funcionario público autorizado para dar fe de los contratos y actos extrajudiciales",
-    "procuraduría": "Institución encargada de velar por el cumplimiento de las leyes",
-    "defensoría": "Institución encargada de proteger los derechos de los ciudadanos"
+# Definir dominios legales y sus palabras clave
+LEGAL_DOMAINS = {
+    'penal': {
+        'keywords': {
+            'delito', 'delitos', 'penal', 'criminal', 'imputado', 'acusado', 'fiscal', 'fiscalia',
+            'juez', 'tribunal', 'audiencia', 'captura', 'detencion', 'proceso', 'procedimiento',
+            'investigacion', 'juzgamiento', 'sentencia', 'condena', 'absolucion', 'presuncion',
+            'inocencia', 'defensa', 'victima', 'victimas', 'testimonio', 'prueba', 'pruebas',
+            'recurso', 'apelacion', 'casacion', 'garantias', 'derechos', 'libertad', 'cautelar',
+            'medida', 'cpp', 'control', 'legalidad'
+        },
+        'patterns': [
+            r'art[íi]culo\s*\d+.*cpp',
+            r'código.*procedimiento.*penal',
+            r'proceso.*penal',
+            r'derecho.*procesal'
+        ],
+        'file': 'legal_db.json',
+        'description': 'derecho procesal penal'
+    },
+    'civil': {
+        'keywords': {
+            'contrato', 'contratos', 'civil', 'matrimonio', 'divorcio', 'herencia', 'testamento',
+            'sucesion', 'propiedad', 'arrendamiento', 'compraventa', 'hipoteca', 'patrimonio',
+            'persona', 'familia', 'menor', 'tutela', 'curatela', 'adopcion', 'patria', 'potestad',
+            'sociedad', 'conyugal', 'gananciales', 'legitima', 'legado', 'albaceas', 'notario',
+            'registro', 'escritura', 'tradicion', 'posesion', 'dominio', 'usufructo', 'servidumbre'
+        },
+        'patterns': [
+            r'código.*civil',
+            r'derecho.*civil',
+            r'registro.*civil',
+            r'notaria'
+        ],
+        'file': 'codigo_civil.json',
+        'description': 'derecho civil'
+    },
+    'laboral': {
+        'keywords': {
+            'trabajo', 'laboral', 'empleado', 'empleador', 'empresa', 'contrato.*trabajo',
+            'salario', 'sueldo', 'prestaciones', 'vacaciones', 'cesantias', 'prima', 'liquidacion',
+            'despido', 'renuncia', 'incapacidad', 'pension', 'jubilacion', 'eps', 'arl',
+            'sindicato', 'convencion', 'colectiva', 'huelga', 'fuero', 'sindical', 'ministerio.*trabajo',
+            'codigo.*trabajo', 'jornada', 'horas.*extras', 'dominical', 'festivo', 'licencia',
+            'maternidad', 'paternidad', 'acoso.*laboral', 'riesgos.*profesionales'
+        },
+        'patterns': [
+            r'código.*trabajo',
+            r'derecho.*laboral',
+            r'ministerio.*trabajo',
+            r'contrato.*trabajo'
+        ],
+        'file': 'codigo_trabajo.json',
+        'description': 'derecho laboral'
+    },
+    'penal_sustantivo': {
+        'keywords': {
+            'codigo.*penal', 'delito', 'delitos', 'pena', 'penas', 'sancion', 'multa', 'prision',
+            'homicidio', 'asesinato', 'lesiones', 'hurto', 'robo', 'estafa', 'fraude', 'extorsion',
+            'secuestro', 'violacion', 'abuso', 'sexual', 'corrupcion', 'soborno', 'prevaricato',
+            'peculado', 'cohecho', 'concusion', 'trafico', 'drogas', 'narcotrafio', 'terrorismo',
+            'rebelion', 'sedicion', 'calumnia', 'injuria', 'difamacion', 'falsedad', 'falsificacion'
+        },
+        'patterns': [
+            r'código.*penal(?!.*procedimiento)',
+            r'derecho.*penal(?!.*procesal)',
+            r'pena.*privativa',
+            r'tipo.*penal'
+        ],
+        'file': 'codigo_penal.json',
+        'description': 'derecho penal sustantivo'
+    }
 }
 
-# Base de conocimiento por defecto (fallback)
-DEFAULT_KB = [
-    {
-        "question": "¿Qué es un contrato?",
-        "answer": "Un contrato es un acuerdo legal entre dos o más partes que crea obligaciones exigibles. Para que sea válido generalmente requiere: 1) Consentimiento, 2) Objeto lícito, 3) Causa lícita y 4) Capacidad legal de las partes. Los contratos pueden ser orales o escritos, aunque algunos requieren forma específica por ley."
-    },
-    {
-        "question": "¿Cómo se realiza un divorcio?",
-        "answer": "El divorcio puede ser: 1) Mutuo acuerdo: ambos cónyuges presentan convenio regulador ante notario o juez. 2) Contencioso: cuando no hay acuerdo, requiere demanda y procedimiento judicial. Requisitos básicos: matrimonio válido, transcurrido plazo mínimo (varía por país), y cumplir causas legales."
-    },
-    {
-        "question": "¿Qué derechos tiene un arrendatario?",
-        "answer": "Derechos básicos del arrendatario: 1) Uso pacífico de la vivienda, 2) Renovación automática en muchos casos, 3) Limitación al aumento de renta, 4) Derecho a desistimiento en plazos legales, 5) Reparaciones a cargo del propietario (excepto menores). Varían según legislación local."
-    },
-    {
-        "question": "¿Qué es un testamento?",
-        "answer": "El testamento es un acto jurídico unilateral por el que una persona dispone sobre su patrimonio para después de su muerte. Tipos comunes: 1) Ológrafo (manuscrito), 2) Abierto (ante notario), 3) Cerrado. Puede modificarse o revocarse mientras el testador viva."
-    },
-    {
-        "question": "¿Cómo denunciar acoso laboral?",
-        "answer": "Pasos básicos: 1) Recopilar pruebas (emails, testigos, etc.), 2) Presentar denuncia ante Inspección de Trabajo, 3) Opcionalmente demanda laboral. En muchos países se considera despido nulo si es por acoso. Plazos varían (generalmente 1 año desde los hechos)."
-    }
-]
+# Cargar bases de conocimiento de todos los dominios
+KNOWLEDGE_BASES = {}
+VECTORIZERS = {}
+TFIDF_MATRICES = {}
 
-# Cargar base de conocimiento legal
-try:
-    current_dir = Path(__file__).parent
-    legal_db_path = current_dir.parent / 'data' / 'legal_db.json'
+def load_knowledge_base(domain, filename):
+    """Carga una base de conocimiento específica."""
+    try:
+        current_dir = Path(__file__).parent
+        file_path = current_dir.parent / 'data' / filename
+        
+        if not file_path.exists():
+            logger.warning(f"Archivo no encontrado: {file_path}")
+            return []
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        logger.info(f"Base de conocimiento '{domain}' cargada: {len(data)} documentos")
+        return data
+    except Exception as e:
+        logger.error(f"Error cargando {filename}: {str(e)}")
+        return []
+
+def initialize_knowledge_bases():
+    """Inicializa todas las bases de conocimiento y sus vectorizadores."""
+    for domain, config in LEGAL_DOMAINS.items():
+        # Cargar base de conocimiento
+        kb = load_knowledge_base(domain, config['file'])
+        if kb:
+            KNOWLEDGE_BASES[domain] = kb
+            
+            # Crear vectorizador específico para este dominio
+            try:
+                vectorizer = TfidfVectorizer(
+                    tokenizer=lambda x: [stemmer.stem(word) for word in word_tokenize(x.lower()) 
+                                        if word not in spanish_stopwords and len(word) > 2] if stemmer else word_tokenize(x.lower()),
+                    max_features=5000,
+                    ngram_range=(1, 2),
+                    min_df=1,  # Reducido de 2 a 1
+                    max_df=0.90,  # Aumentado de 0.85 a 0.90
+                    token_pattern=None
+                )
+                
+                # Preparar corpus
+                corpus = [item['question'] + " " + item['answer'] for item in kb]
+                tfidf_matrix = vectorizer.fit_transform(corpus)
+                
+                VECTORIZERS[domain] = vectorizer
+                TFIDF_MATRICES[domain] = tfidf_matrix
+                
+                logger.info(f"Vectorizador para '{domain}' creado: {len(corpus)} documentos")
+            except Exception as e:
+                logger.error(f"Error creando vectorizador para {domain}: {str(e)}")
+
+# Inicializar todas las bases de conocimiento
+initialize_knowledge_bases()
+
+def detect_legal_domain(text):
+    """Detecta el dominio legal más probable para una consulta."""
+    text_lower = text.lower()
+    domain_scores = {}
     
-    with open(legal_db_path, 'r', encoding='utf-8') as f:
-        LEGAL_KB = json.load(f)
-    logger.info(f"Base de conocimiento cargada desde {legal_db_path}")
-except FileNotFoundError:
-    logger.warning(f"No se encontró el archivo {legal_db_path}. Usando base de conocimiento por defecto.")
-    LEGAL_KB = DEFAULT_KB
-except json.JSONDecodeError as e:
-    logger.error(f"Error al parsear el archivo JSON: {e}. Usando base de conocimiento por defecto.")
-    LEGAL_KB = DEFAULT_KB
-except Exception as e:
-    logger.error(f"Error inesperado: {str(e)}. Usando base de conocimiento por defecto.")
-    LEGAL_KB = DEFAULT_KB
+    for domain, config in LEGAL_DOMAINS.items():
+        score = 0
+        
+        # Puntuar por palabras clave
+        keyword_matches = sum(1 for keyword in config['keywords'] if keyword in text_lower)
+        score += keyword_matches * 2
+        
+        # Puntuar por patrones regex
+        pattern_matches = sum(1 for pattern in config['patterns'] if re.search(pattern, text_lower))
+        score += pattern_matches * 3
+        
+        domain_scores[domain] = score
+    
+    # Encontrar el dominio con mayor puntaje
+    if domain_scores:
+        best_domain = max(domain_scores, key=domain_scores.get)
+        max_score = domain_scores[best_domain]
+        
+        # Solo devolver un dominio si tiene un puntaje mínimo
+        if max_score >= 1:
+            return best_domain, max_score
+    
+    return None, 0
 
-# Variables para vectorización de texto
-vectorizer = TfidfVectorizer(
-    tokenizer=lambda x: [stemmer.stem(word) for word in word_tokenize(x.lower()) 
-                        if word not in spanish_stopwords and len(word) > 2],
-    stop_words=list(spanish_stopwords) if spanish_stopwords else None
-)
+def detect_query_intent(text, domain=None):
+    """Detecta la intención de la consulta considerando el dominio."""
+    text_lower = text.lower()
+    
+    # Intenciones específicas por dominio
+    if domain == 'civil':
+        if any(word in text_lower for word in ['testamento', 'herencia', 'sucesion']):
+            return 'inheritance_query'
+        elif any(word in text_lower for word in ['contrato', 'arrendamiento', 'compraventa']):
+            return 'contract_query'
+        elif any(word in text_lower for word in ['matrimonio', 'divorcio', 'familia']):
+            return 'family_query'
+        return 'civil_general'
+    
+    elif domain == 'laboral':
+        if any(word in text_lower for word in ['despido', 'liquidacion', 'terminacion']):
+            return 'termination_query'
+        elif any(word in text_lower for word in ['salario', 'prestaciones', 'pago']):
+            return 'salary_query'
+        elif any(word in text_lower for word in ['contrato', 'vinculacion', 'trabajo']):
+            return 'employment_query'
+        return 'labor_general'
+    
+    elif domain == 'penal':
+        if any(word in text_lower for word in ['artículo', 'establece', 'dice', 'contenido']):
+            return 'article_query'
+        elif any(word in text_lower for word in ['cómo', 'procedimiento', 'proceso', 'pasos', 'audiencia', 'control']):
+            return 'procedure_query'
+        elif any(word in text_lower for word in ['derechos', 'garantías', 'protección', 'victima', 'victimas']):
+            return 'rights_query'
+        return 'penal_general'
+    
+    elif domain == 'penal_sustantivo':
+        if any(word in text_lower for word in ['pena', 'sancion', 'castigo']):
+            return 'penalty_query'
+        elif any(word in text_lower for word in ['delito', 'crimen', 'tipificacion']):
+            return 'crime_query'
+        return 'penal_substantive_general'
+    
+    # Intenciones generales
+    if any(phrase in text_lower for phrase in ['de que', 'que temas', 'que puedes', 'ayuda', 'sobre que']):
+        return 'general_help'
+    
+    if any(word in text_lower for word in ['qué es', 'definición', 'concepto', 'significa']):
+        return 'definition_query'
+    
+    return 'general_query'
 
-# Preprocesar y vectorizar la base de conocimiento
-try:
-    # Preparar corpus para vectorización
-    corpus = [item['question'] + " " + item['answer'] for item in LEGAL_KB]
-    tfidf_matrix = vectorizer.fit_transform(corpus)
-    logger.info(f"Base de conocimiento vectorizada correctamente: {len(corpus)} documentos")
-except Exception as e:
-    logger.error(f"Error al vectorizar base de conocimiento: {str(e)}")
-    tfidf_matrix = None
+def semantic_search_domain(query, domain, min_score=0.15):  # Reducido de 0.25 a 0.15
+    """Realiza búsqueda semántica en un dominio específico."""
+    if domain not in VECTORIZERS or domain not in TFIDF_MATRICES:
+        return []
+    
+    try:
+        vectorizer = VECTORIZERS[domain]
+        tfidf_matrix = TFIDF_MATRICES[domain]
+        kb = KNOWLEDGE_BASES[domain]
+        
+        # Vectorizar la consulta
+        query_vector = vectorizer.transform([query])
+        
+        # Calcular similitud
+        cosine_similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
+        
+        # Filtrar y ordenar resultados
+        results = []
+        for idx, score in enumerate(cosine_similarities):
+            if score > min_score:
+                results.append({
+                    "index": idx,
+                    "score": float(score),
+                    "item": kb[idx],
+                    "domain": domain
+                })
+        
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:10]  # Aumentado de 5 a 10
+        
+    except Exception as e:
+        logger.error(f"Error en búsqueda semántica para {domain}: {str(e)}")
+        return []
 
-# Función para preprocesar texto
 def preprocess_text(text):
-    """Preprocesa el texto para análisis con técnicas avanzadas de NLP."""
+    """Preprocesa el texto para análisis."""
     if not isinstance(text, str):
         return "", []
     
     try:
-        # Limpieza básica del texto
         text = text.lower()
-        text = re.sub(r'[^\w\sáéíóúüñ¿?¡!.,;]', '', text)  # Conserva caracteres españoles y puntuación básica
-        
-        # Tokenización y eliminación de stopwords
+        text = re.sub(r'[^\w\sáéíóúüñ¿?¡!.,;]', '', text)
         tokens = word_tokenize(text)
         clean_tokens = [token for token in tokens if token not in spanish_stopwords and len(token) > 2]
         
-        # Análisis con spaCy si está disponible
         if nlp:
             doc = nlp(text)
-            # Extraer entidades nombradas
             entities = [(ent.text, ent.label_) for ent in doc.ents]
-            # Extraer frases nominales principales
             noun_chunks = [chunk.text for chunk in doc.noun_chunks]
-            # Análisis de dependencias para identificar relaciones
             dependencies = [(token.text, token.dep_, token.head.text) for token in doc]
             
             return text, {
@@ -153,7 +309,6 @@ def preprocess_text(text):
                 "stemmed_tokens": [stemmer.stem(token) for token in clean_tokens] if stemmer else []
             }
         else:
-            # Versión simplificada si spaCy no está disponible
             return text, {
                 "tokens": clean_tokens,
                 "stemmed_tokens": [stemmer.stem(token) for token in clean_tokens] if stemmer else [],
@@ -165,322 +320,170 @@ def preprocess_text(text):
         logger.error(f"Error en preprocesamiento de texto: {str(e)}")
         return text, {"tokens": [], "stemmed_tokens": [], "entities": [], "noun_chunks": [], "dependencies": []}
 
-def extract_entities(nlp_features):
-    """Extrae entidades legales reconocidas en el texto."""
-    entities = {}
-    
-    # Entidades de spaCy
-    for ent, label in nlp_features.get("entities", []):
-        if label in ["ORG", "PER", "LOC", "LAW"]:
-            entities[ent.lower()] = label
-    
-    # Buscar entidades legales comunes
-    for token in nlp_features.get("tokens", []):
-        if token.lower() in LEGAL_ENTITIES:
-            entities[token.lower()] = "LEGAL_ENTITY"
-    
-    # Buscar referencias a artículos
-    text = " ".join(nlp_features.get("tokens", []))
-    article_refs = re.findall(r'art[íi]culo\s+(\d+[o°\.]?)', text, re.IGNORECASE)
-    if article_refs:
-        entities["referencias_articulos"] = article_refs
-    
-    return entities
-
-def identify_query_type(text, nlp_features):
-    """Identifica el tipo de consulta para mejorar la búsqueda."""
-    text = text.lower()
-    
-    # Patrones de consultas
-    patterns = {
-        "definicion": [r"qu[ée]\s+es", r"defin[ei]", r"concepto", r"significa"],
-        "procedimiento": [r"c[óo]mo\s+(?:se|puedo)", r"procedimiento", r"pasos", r"tr[áa]mite"],
-        "normativa": [r"ley", r"norma", r"regulaci[óo]n", r"art[íi]culo", r"decreto"],
-        "derechos": [r"derecho", r"garant[íi]a", r"protecci[óo]n", r"amparo"],
-        "plazos": [r"plazo", r"t[ée]rmino", r"fecha", r"vencimiento", r"prescripci[óo]n"],
-        "requisitos": [r"requisito", r"necesito", r"condici[óo]n", r"exigencia"]
-    }
-    
-    query_types = []
-    for qtype, pattern_list in patterns.items():
-        for pattern in pattern_list:
-            if re.search(pattern, text):
-                query_types.append(qtype)
-                break
-    
-    # Verificar si es una pregunta directa
-    is_question = bool(re.search(r'\?|c[óo]mo|qu[ée]|cu[áa]ndo|d[óo]nde|por\s+qu[ée]|cu[áa]l', text))
-    
-    # Detectar si busca referencias a artículos específicos
-    article_reference = bool(re.search(r'art[íi]culo\s+\d+', text, re.IGNORECASE))
-    
-    return {
-        "types": list(set(query_types)),  # Eliminar duplicados
-        "is_question": is_question,
-        "article_reference": article_reference
-    }
-
-def query_enhancement(query, nlp_features):
-    """Mejora la consulta para búsqueda semántica."""
-    # Extraer los términos más relevantes
-    terms = nlp_features.get("tokens", [])
-    
-    # Identificar y expandir términos legales
-    expanded_terms = []
-    for term in terms:
-        expanded_terms.append(term)
-        
-        # Agregar sinónimos o términos relacionados para términos legales comunes
-        legal_synonyms = {
-            "divorcio": ["separación", "disolución matrimonial"],
-            "contrato": ["acuerdo", "convenio", "pacto"],
-            "herencia": ["sucesión", "legado", "testamento"],
-            "delito": ["crimen", "infracción", "ilícito"],
-            "demanda": ["denuncia", "querella", "reclamación"],
-            "juicio": ["proceso", "procedimiento", "litigio"],
-            "sentencia": ["fallo", "resolución", "decisión judicial"]
-        }
-        
-        if term.lower() in legal_synonyms:
-            expanded_terms.extend(legal_synonyms[term.lower()])
-    
-    # Identificar el tipo de consulta
-    query_type = identify_query_type(query, nlp_features)
-    
-    # Si es una referencia a un artículo, priorizarla
-    if query_type["article_reference"]:
-        article_nums = re.findall(r'art[íi]culo\s+(\d+[o°\.]?)', query, re.IGNORECASE)
-        if article_nums:
-            expanded_terms.extend([f"articulo {num}" for num in article_nums])
-    
-    enhanced_query = " ".join(list(set(expanded_terms)))
-    return enhanced_query, query_type
-
-def semantic_search(query, query_type):
-    """Realiza búsqueda semántica en la base de conocimiento."""
-    if tfidf_matrix is None:
-        return []
-    
+def extract_relevant_answer_parts(answer, query_tokens, max_sentences=3):
+    """Extrae las partes más relevantes de una respuesta larga."""
     try:
-        # Vectorizar la consulta
-        query_vector = vectorizer.transform([query])
-        
-        # Calcular similitud con todos los documentos
-        cosine_similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
-        
-        # Ordenar resultados por similitud
-        results = []
-        for idx, score in enumerate(cosine_similarities):
-            if score > 0.1:  # Umbral mínimo de similitud
-                results.append({
-                    "index": idx,
-                    "score": float(score),
-                    "item": LEGAL_KB[idx]
-                })
-        
-        results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # Aplicar criterios de clasificación adicionales basados en el tipo de consulta
-        if query_type["types"]:
-            for result in results:
-                # Bonificación para resultados que coinciden con el tipo de consulta
-                for qtype in query_type["types"]:
-                    if qtype == "definicion" and any(p in result["item"]["question"].lower() for p in ["qué es", "definición"]):
-                        result["score"] *= 1.2
-                    elif qtype == "procedimiento" and any(p in result["item"]["question"].lower() for p in ["cómo", "procedimiento"]):
-                        result["score"] *= 1.2
-                    elif qtype == "normativa" and any(p in result["item"]["question"].lower() for p in ["ley", "artículo"]):
-                        result["score"] *= 1.2
-        
-        # Reordenar después de aplicar bonificaciones
-        results.sort(key=lambda x: x["score"], reverse=True)
-        
-        return results
-    except Exception as e:
-        logger.error(f"Error en búsqueda semántica: {str(e)}")
-        return []
-
-def extract_answer_parts(query, answer, nlp_features):
-    """Extrae partes relevantes de una respuesta según la consulta."""
-    if not answer or not query:
-        return answer
-    
-    try:
-        # Dividir la respuesta en oraciones
         sentences = sent_tokenize(answer)
+        if len(sentences) <= max_sentences:
+            return answer
         
-        # Identificar oraciones más relevantes
-        query_tokens = set(nlp_features.get("tokens", []))
+        # Calcular relevancia de cada oración
         sentence_scores = []
-        
         for i, sentence in enumerate(sentences):
             sentence_tokens = set(word_tokenize(sentence.lower()))
-            common_tokens = query_tokens.intersection(sentence_tokens)
+            query_token_set = set(query_tokens)
             
-            # Calcular puntuación para esta oración
+            # Calcular similitud por tokens comunes
+            common_tokens = query_token_set.intersection(sentence_tokens)
             score = len(common_tokens) / max(1, len(sentence_tokens))
             
-            # Bonificación para primeras oraciones (suelen contener definiciones)
+            # Bonificación para oraciones al inicio (suelen contener definiciones)
             if i == 0:
-                score += 0.3
+                score += 0.2
             
             sentence_scores.append((i, score, sentence))
         
-        # Ordenar oraciones por relevancia
+        # Ordenar por relevancia y tomar las mejores
         sentence_scores.sort(key=lambda x: x[1], reverse=True)
+        best_sentences = sentence_scores[:max_sentences]
         
-        # Tomar las oraciones más relevantes (máximo 70% del total)
-        max_sentences = max(1, int(len(sentences) * 0.7))
-        selected_indices = [x[0] for x in sentence_scores[:max_sentences]]
-        selected_indices.sort()  # Reordenar según orden original
+        # Reordenar según orden original
+        best_sentences.sort(key=lambda x: x[0])
         
-        relevant_sentences = [sentences[i] for i in selected_indices]
-        
-        # Si son muy pocas oraciones, devolver respuesta completa
-        if len(relevant_sentences) < 2 and len(sentences) > 3:
-            return answer
-            
-        return " ".join(relevant_sentences)
-    except Exception as e:
-        logger.error(f"Error al extraer partes relevantes: {str(e)}")
+        return " ".join([sent[2] for sent in best_sentences])
+    except:
         return answer
 
-def generate_contextual_response(query, results, nlp_features, user_context=None):
-    """Genera una respuesta contextual basada en los resultados de búsqueda."""
-    if not results:
-        return generate_fallback_response(query, nlp_features)
+def generate_domain_response(query, results, domain, intent, query_tokens):
+    """Genera respuesta específica según el dominio detectado."""
+    # Usar umbral más bajo para mejor cobertura
+    threshold = 0.2  # Reducido de 0.4 a 0.2
     
-    try:
-        # Obtener mejor resultado
+    if not results or results[0]["score"] < threshold:
+        # Respuestas por defecto según dominio
+        if domain == 'civil':
+            return f"No encontré información específica sobre tu consulta de derecho civil. Te puedo ayudar con temas como: contratos, matrimonio, divorcio, herencias, testamentos, propiedad, arrendamientos, y otros aspectos del Código Civil. ¿Podrías ser más específico?"
+        elif domain == 'laboral':
+            return f"No encontré información específica sobre tu consulta laboral. Te puedo ayudar con: contratos de trabajo, despidos, liquidaciones, prestaciones sociales, jornada laboral, y otros temas del Código de Trabajo. ¿Qué aspecto laboral específico te interesa?"
+        elif domain == 'penal_sustantivo':
+            return f"No encontré información específica sobre tu consulta de derecho penal. Te puedo ayudar con: tipos penales, delitos, penas, y otros aspectos del Código Penal. ¿Sobre qué delito o pena específica quieres saber?"
+        elif domain == 'penal':
+            return f"No encontré información específica sobre tu consulta de procedimiento penal. Te puedo ayudar con: etapas del proceso, derechos del imputado, garantías procesales, derechos de víctimas, y otros aspectos del Código de Procedimiento Penal."
+    
+    # Si hay buenos resultados
+    if results and results[0]["score"] > threshold:
         best_match = results[0]
         answer = best_match["item"]["answer"]
         
-        # Extraer partes más relevantes de la respuesta
-        focused_answer = extract_answer_parts(query, answer, nlp_features)
+        # Extraer partes relevantes de respuestas largas
+        processed_answer = extract_relevant_answer_parts(answer, query_tokens, max_sentences=4)
         
-        # Personalizar la respuesta según el tipo de consulta
-        query_type = identify_query_type(query, nlp_features)
+        domain_desc = LEGAL_DOMAINS[domain]['description']
         
-        response_parts = []
-        
-        # Introducción personalizada según tipo de consulta
-        if query_type["types"]:
-            if "definicion" in query_type["types"]:
-                response_parts.append("De acuerdo con la legislación colombiana,")
-            elif "procedimiento" in query_type["types"]:
-                response_parts.append("El procedimiento establecido indica que")
-            elif "derechos" in query_type["types"]:
-                response_parts.append("En cuanto a los derechos que mencionas,")
-        
-        # Agregar la respuesta principal
-        response_parts.append(focused_answer)
-        
-        # Agregar fuentes si hay alta confianza
-        if best_match["score"] > 0.7:
-            article_match = re.search(r'Art[íi]culo\s+(\d+[o°\.]*)', answer)
-            if article_match:
-                response_parts.append(f"\n\nEsta información está basada en el Artículo {article_match.group(1)} del Código de Procedimiento Penal colombiano.")
-        
-        # Verificar si hay respuestas adicionales relevantes
-        if len(results) > 1 and results[1]["score"] > 0.5:
-            additional_info = extract_answer_parts(query, results[1]["item"]["answer"], nlp_features)
-            if additional_info and additional_info != focused_answer:
-                response_parts.append("\n\nAdicionalmente, debes tener en cuenta que: " + additional_info)
-        
-        # Si la confianza es baja, agregar disclaimers
-        if best_match["score"] < 0.4:
-            response_parts.append("\n\nTe recomiendo consultar con un abogado para obtener asesoría específica sobre tu caso particular.")
-        
-        return " ".join(response_parts)
-    except Exception as e:
-        logger.error(f"Error generando respuesta contextual: {str(e)}")
-        return results[0]["item"]["answer"]
-
-def generate_fallback_response(query, nlp_features):
-    """Genera una respuesta cuando no se encuentran coincidencias."""
-    # Identificar entidades y tipo de consulta
-    entities = extract_entities(nlp_features)
-    query_type = identify_query_type(query, nlp_features)
+        # Personalizar introducción según dominio e intención
+        if intent == 'inheritance_query':
+            return f"Según el Código Civil colombiano en materia de herencias: {processed_answer}"
+        elif intent == 'contract_query':
+            return f"En cuanto a contratos, el Código Civil establece: {processed_answer}"
+        elif intent == 'family_query':
+            return f"Sobre derecho de familia: {processed_answer}"
+        elif intent == 'termination_query':
+            return f"En materia laboral sobre terminación de contratos: {processed_answer}"
+        elif intent == 'salary_query':
+            return f"Según la legislación laboral sobre salarios: {processed_answer}"
+        elif intent == 'crime_query':
+            return f"El Código Penal establece sobre este delito: {processed_answer}"
+        elif intent == 'penalty_query':
+            return f"En cuanto a las penas, el Código Penal dispone: {processed_answer}"
+        elif intent == 'procedure_query':
+            return f"El procedimiento establecido indica que: {processed_answer}"
+        elif intent == 'rights_query':
+            return f"En cuanto a los derechos que mencionas: {processed_answer}"
+        elif intent == 'article_query':
+            return f"Según la legislación ({domain_desc}): {processed_answer}"
+        else:
+            return f"De acuerdo con la legislación colombiana ({domain_desc}): {processed_answer}"
     
-    # Construir respuesta personalizada según los datos disponibles
-    if query_type["types"]:
-        if "definicion" in query_type["types"]:
-            return "No tengo información específica sobre la definición que buscas. Te recomiendo consultar el Código de Procedimiento Penal o un abogado especializado para obtener esta información. ¿Hay algún otro tema legal sobre el que pueda ayudarte?"
-        
-        if "procedimiento" in query_type["types"]:
-            return "No tengo detalles específicos sobre el procedimiento que mencionas. Los procedimientos legales suelen estar regulados en códigos específicos y pueden variar. Te sugiero consultar con un profesional del derecho para obtener información precisa sobre este trámite."
-    
-    # Verificar si hay referencias a artículos
-    if query_type["article_reference"] and "referencias_articulos" in entities:
-        return f"No tengo información detallada sobre el artículo {entities['referencias_articulos'][0]} que mencionas. ¿Te gustaría que busque información sobre algún otro tema legal relacionado?"
-    
-    # Respuesta general
-    suggestions = [
-        "derechos fundamentales en el proceso penal",
-        "etapas del proceso penal",
-        "recursos en el proceso penal",
-        "garantías procesales",
-        "funciones del juez de control de garantías"
-    ]
-    
-    # Seleccionar sugerencias más relevantes
-    relevant_suggestions = []
-    for suggestion in suggestions:
-        for token in nlp_features.get("tokens", []):
-            if token in suggestion:
-                relevant_suggestions.append(suggestion)
-                break
-    
-    if not relevant_suggestions:
-        relevant_suggestions = suggestions[:3]  # Tomar primeras 3 sugerencias generales
-    
-    suggestions_text = ", ".join(relevant_suggestions)
-    
-    return f"No tengo información específica sobre tu consulta. Puedo ayudarte con temas como: {suggestions_text}. ¿Te gustaría obtener información sobre alguno de estos temas?"
+    return "No encontré información específica sobre tu consulta. ¿Podrías reformular tu pregunta o ser más específico?"
 
 def process_legal_query(query, user_context=None):
-    """Procesa una consulta legal y devuelve la respuesta más relevante."""
+    """Procesa una consulta legal considerando múltiples dominios."""
     if not query or not isinstance(query, str):
         return "Por favor, proporcione una consulta válida."
     
     try:
-        # 1. Preprocesar la consulta
+        # 1. Detectar dominio legal
+        domain, domain_score = detect_legal_domain(query)
+        
+        # 2. Si es consulta de ayuda general
+        if not domain and any(phrase in query.lower() for phrase in ['de que', 'que temas', 'que puedes', 'ayuda']):
+            available_domains = list(KNOWLEDGE_BASES.keys())
+            domain_descriptions = [LEGAL_DOMAINS[d]['description'] for d in available_domains]
+            return f"Soy un asistente legal que puede ayudarte con: {', '.join(domain_descriptions)}. También puedo responder sobre artículos específicos, procedimientos, derechos y garantías. ¿Sobre qué tema específico te gustaría saber más?"
+        
+        # 3. Si no se detecta dominio específico, buscar en todos
+        if not domain:
+            # Buscar en todos los dominios disponibles
+            all_results = []
+            clean_query, nlp_features = preprocess_text(query)
+            
+            for search_domain in KNOWLEDGE_BASES.keys():
+                domain_results = semantic_search_domain(clean_query, search_domain, min_score=0.15)
+                for result in domain_results:
+                    all_results.append(result)
+            
+            # Ordenar todos los resultados por score
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+            
+            if all_results and all_results[0]["score"] > 0.2:
+                best_result = all_results[0]
+                found_domain = best_result["domain"]
+                domain_desc = LEGAL_DOMAINS[found_domain]['description']
+                answer = extract_relevant_answer_parts(best_result["item"]["answer"], nlp_features["tokens"])
+                
+                logger.info(f"Consulta: '{query}' | Dominio encontrado: {found_domain} | Score: {best_result['score']:.3f}")
+                return f"Encontré información relevante en {domain_desc}: {answer}"
+            else:
+                return "No pude identificar el área legal de tu consulta. Te puedo ayudar con derecho civil, laboral, penal, y procesal penal. ¿Podrías ser más específico sobre el tema legal que te interesa?"
+        
+        # 4. Preprocesar consulta
         clean_query, nlp_features = preprocess_text(query)
         
         if not nlp_features["tokens"]:
             return "No pude procesar su consulta. ¿Podría reformularla?"
         
-        # 2. Mejorar la consulta y determinar su tipo
-        enhanced_query, query_type = query_enhancement(clean_query, nlp_features)
+        # 5. Detectar intención específica del dominio
+        intent = detect_query_intent(query, domain)
         
-        # 3. Realizar búsqueda semántica
-        search_results = semantic_search(enhanced_query, query_type)
+        # 6. Realizar búsqueda semántica en el dominio detectado
+        search_results = semantic_search_domain(clean_query, domain, min_score=0.15)
         
-        # 4. Generar respuesta contextual
-        if search_results:
-            response = generate_contextual_response(clean_query, search_results, nlp_features, user_context)
-        else:
-            response = generate_fallback_response(clean_query, nlp_features)
+        # 7. Generar respuesta específica del dominio
+        response = generate_domain_response(query, search_results, domain, intent, nlp_features["tokens"])
         
-        # 5. Registrar la consulta para análisis y mejoras futuras
-        logger.info(f"Consulta: '{query}' | Tipo: {query_type['types']} | Resultados: {len(search_results)}")
+        # 8. Registrar la consulta
+        score_info = f" | Score: {search_results[0]['score']:.3f}" if search_results else ""
+        logger.info(f"Consulta: '{query}' | Dominio: {domain} (score: {domain_score}) | Intención: {intent} | Resultados: {len(search_results)}{score_info}")
         
         return response
+        
     except Exception as e:
         logger.error(f"Error general procesando consulta: {str(e)}")
-        return "Ocurrió un error al procesar su solicitud. Por favor, intente nuevamente con una consulta diferente."
+        return "Ocurrió un error al procesar su solicitud. Por favor, intente nuevamente."
 
-# Ejemplo de uso:
+# Ejemplo de uso
 if __name__ == "__main__":
     test_queries = [
+        "¿Cómo hago un testamento?",
         "¿Qué es el principio de presunción de inocencia?",
-        "¿Cómo se realiza una audiencia de imputación?",
-        "¿Cuáles son los derechos de las víctimas en el proceso penal?",
-        "¿Qué establece el Artículo 8 sobre el derecho a la defensa?",
-        "¿Cuándo se considera cosa juzgada?"
+        "¿Cuáles son mis derechos laborales?",
+        "¿Qué pena tiene el homicidio?",
+        "¿Cuáles son los derechos de las víctimas?",
+        "¿Cómo se realiza una audiencia de control de garantías?",
+        "de qué temas me puedes ayudar"
     ]
     
-    print("=== TESTING LEGAL ASSISTANT ===")
+    print("=== TESTING OPTIMIZED MULTI-DOMAIN LEGAL ASSISTANT ===")
     for query in test_queries:
         print(f"\nQ: {query}")
         response = process_legal_query(query)
